@@ -2,7 +2,7 @@
     "sketch": "test_sketch.ino",
     "board": "arduino:avr:mega",
     "configuration": "cpu=atmega2560",
-    "port": "COM3",
+    "port": "COM1",
     "programmer": "AVR ISP",
     "output": "../Output"
 }

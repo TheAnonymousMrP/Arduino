@@ -2,10 +2,11 @@
 
 #include "TestData/testdata.h"
 
-
 #ifndef _digitalWriteFast_h_
 #include <digitalWriteFast.h>
 #endif
+
+#define SOMETHING true
 
 // Definition for NOP x n;
 // https://forum.arduino.cc/index.php?topic=481251.0
@@ -35,60 +36,128 @@ They scare me :(
 #define pD0     PORTC + PC0 // 53
 #define DataBus PORTC       // 53-60
 
-class PointerHelper {
+#define BLOCKSIZE 0x200U
+#define COMMANDPILESIZE 0x100U
 
-    uint32_t       _length = 0;
-    const uint8_t *_pointerSOF;
-    const uint8_t *_pointer8;
-    const uint8_t *_pointerEOF = _pointerSOF;
+class MyFirstReader {
+  public:
+    operator bool() { return false; }
+
+    virtual const uint16_t length();
+
+    virtual const uint16_t position();
+    virtual const uint16_t positionMid();
+
+    virtual bool    readByte(void * buffer);
+    virtual uint8_t readBytes(void * buffer, uint16_t nBytes);
+    virtual bool    skipBytes(uint16_t nBytes);
+};
+
+class BlockWriter {
+    uint8_t         dataBlock[BLOCKSIZE];
+    uint8_t *       _pointer8 = &dataBlock[0];
+    uint8_t * const _SOF      = _pointer8;
+    uint8_t *       _EOF      = _SOF + BLOCKSIZE;
+    bool            _locked   = false;
 
   public:
-    PointerHelper(void){};
-    // PointerHelper(PointerHelper* c) { return PointerHelper(c._pointerSOF, c._pointerEOF)};
-    PointerHelper(const uint8_t *start, const uint8_t *end) {
-        _pointerSOF = start;
-        _pointer8   = start;
-        _pointerEOF = end;
-        _length     = end - start;
-    };
-    uint32_t length() { return _length; }
-             operator bool() { return (_length > 0) && (_pointer8 < _pointerEOF); }
+    // BlockWriter();
+    operator bool() { return !_locked && getLength() && (_pointer8 < _EOF); }
 
-    const uint8_t * position() { return _pointer8; }
+    const uint8_t * const getSOF() { return _SOF; }
+    const uint8_t * const getEOF() { return _EOF; }
+    const uint16_t        getLength() { return _EOF - _SOF; }
+    const uint8_t * const getPosition() { return _pointer8; }
+    const uint8_t * const getPositionMid() { return _SOF + (getLength() / 2); }
 
-    bool readByte(uint8_t &buffer) {
-        if (bool()) {
+    void lock() {
+        if (_pointer8 < _EOF) { _EOF = _pointer8; }
+        _locked = true;
+    }
+
+    bool isLocked() { return _locked; }
+
+    bool skipBytes(uint16_t nBytes) {
+        if (this && _pointer8 + nBytes < _EOF) {
+            for (int i = 0; i < nBytes; i++) {
+                *_pointer8++ = 0x00U;
+            }
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool writeByte(const uint8_t byte) {
+        if (this) { *_pointer8++ = byte; }
+    }
+
+    uint8_t writeBytes(const uint8_t * buffer, uint8_t nBytes) {
+        if (this) {
+            uint8_t written = 0U;
+            for (written; written < nBytes; written++) {
+                if (!writeByte(*buffer++)) { break; };
+            }
+            return written;
+        } else {
+            return 0U;
+        }
+    }
+};
+
+class BlockReader {
+    const uint8_t * const _SOF;
+    const uint8_t *       _pointer8;
+    const uint8_t * const _EOF;
+
+  public:
+    BlockReader(const uint8_t start, const uint8_t end)
+        : _SOF(&start), _pointer8(_SOF), _EOF(&end){};
+    BlockReader(const uint8_t * const start, const uint8_t * const end)
+        : _SOF(start), _pointer8(_SOF), _EOF(end){};
+    BlockReader(BlockWriter & data)
+        : _SOF(data.getSOF()), _pointer8(_SOF), _EOF(data.getEOF()){};
+
+    operator bool() const { return getLength() && (_pointer8 < _EOF); }
+
+    const uint16_t getLength() const { return _EOF - _SOF; }
+
+    const uint8_t * const getPosition() const { return _pointer8; }
+    const uint8_t * const getPositionMid() const { return _SOF + getLength() / 2; }
+
+    bool readByte(uint8_t & buffer) {
+        if (this) {
             buffer = *_pointer8++;
             return true;
         } else {
             return false;
         }
     }
-    uint8_t readBytes(uint8_t &buffer, uint16_t nBytes) {
+    // this probably doesn't work, don't use it
+    uint8_t readBytes(uint8_t * buffer, uint16_t nBytes) {
         uint8_t returned = 0U;
         for (returned; returned < nBytes; returned++) {
-            if (!readByte(buffer)) {
-                break;
-            }
+            if (!readByte(*buffer++)) { break; }
         }
         return returned;
     }
 
     bool skipBytes(uint16_t nBytes) {
-        if (_pointer8 + nBytes < _pointerEOF) {
+        if (_pointer8 + nBytes < _EOF) {
             _pointer8 += nBytes;
             return true;
         } else {
+            // consider setting _pointer8 to _EOF
             return false;
         }
     }
-} currentFile;
+};
 
 namespace VGM {
-    const uint32_t SIXTY_SAMPLES  = 735;
-    const uint32_t FIFTY_SAMPLES  = 882;
+    const uint16_t SIXTY_SAMPLES  = 735;
+    const uint16_t FIFTY_SAMPLES  = 882;
     const uint32_t OFFSET_DEFAULT = 0x0C;
-    enum class Type {
+    enum class Type : uint8_t {
         null,
         dataBlock, // is this not just a long sequence of Instructions??
         header,
@@ -97,9 +166,10 @@ namespace VGM {
     };
 
     struct Header {
+        // TODO: Figure out if any of these can be union'd
         uint32_t fileID;                    // 0x00
         uint32_t offsetEOF;                 // 0x04
-        uint32_t offsetStart;               // 0x34 
+        uint32_t offsetStart;               // 0x34
         uint32_t fileVersion;               // 0x08
         uint32_t sampleTotal;               // 0x18
         uint32_t loopOffset;                // 0x1C
@@ -118,7 +188,7 @@ namespace YM2612 {
         // consider merging to a word?
         uint8_t address;
         uint8_t data;
-        bool bank;
+        bool    bank;
     } currentWrite;
 
     struct Register {
@@ -128,13 +198,15 @@ namespace YM2612 {
     };
 
     struct Command {
-        enum class Type { inactive, read, wait, write };
+        enum class Type : uint8_t { inactive, read, wait, write };
         Type type = Type::inactive;
         union {
-            uint32_t wait;
+            uint16_t wait;
             Write    write;
         };
     } currentCommand;
+
+    const uint32_t clockSpeed = 7670453U;
 
     const Register Test1       = {0x21, 8 | (0 << 4)};
     const Register LFO         = {0x22, 4 | (0 << 4)};
@@ -177,10 +249,6 @@ namespace YM2612 {
     const Register PMS           = {0xB4, 3 | (0 << 4)};
 }; // namespace YM2612
 
-
-
-
-
 // I think the read versions are unnecessary??
 // Keep for reading from files
 uint8_t readRegister(uint8_t a, YM2612::Register r) {
@@ -203,7 +271,9 @@ uint8_t writeRegister(uint8_t a, YM2612::Register r) {
     }
 }
 // TODO: Figure out if these are backwards?? Endianness etc.
-word readTimerA(uint8_t a, uint8_t b) { return ((word)a << 2) | (b & B00000011); }
+word readTimerA(uint8_t a, uint8_t b) {
+    return ((word)a << 2) | (b & B00000011);
+}
 word writeTimerA(word a) {
     uint8_t b = (uint8_t)a & B00000011;
     return ((a >> 2) << 8 | b);
@@ -214,39 +284,125 @@ word writeFNum(word a) {
     return (a << 8 | b);
 }
 
-void setupPins() {
-    pinMode(pIC, OUTPUT);
-    pinMode(pIRQ, OUTPUT);
-    pinMode(pCS, OUTPUT);
-    pinMode(pRD, OUTPUT);
-    pinMode(pWR, OUTPUT);
-    pinMode(pA0, OUTPUT);
-    pinMode(pA1, OUTPUT);
 
-    for (int i = 0; i < 8; i++) {
-        pinMode(DataBus + i, INPUT);
+VGM::Header readVGMHeader(const uint32_t *pointerToFileAddress) {
+    VGM::Header temp;
+    temp.fileID       = *pointerToFileAddress++;    // 0x00++
+    temp.offsetEOF    = *pointerToFileAddress++;    // 0x04++
+    temp.fileVersion  = *pointerToFileAddress++;    // 0x08++
+    temp.SN76489clock = *pointerToFileAddress++;    // 0x0C++
+    pointerToFileAddress += 2;                      // 0x10+8
+    temp.sampleTotal     = *pointerToFileAddress++; // 0x18++
+    temp.loopOffset      = *pointerToFileAddress++; // 0x1C++
+    temp.loopTotal       = *pointerToFileAddress++; // 0x20++
+    temp.frameRate       = *pointerToFileAddress++; // 0x24++
+    uint32_t SN76478temp = *pointerToFileAddress++; // 0x28++
+    temp.YM2612clock     = *pointerToFileAddress++; // 0x2C++
+    pointerToFileAddress++;                         // 0x30+4
+
+    if (temp.fileVersion < 0x00000150) {
+        temp.offsetStart = VGM::OFFSET_DEFAULT;
+    } else {
+        temp.offsetStart = *pointerToFileAddress; // 0x34
     }
 
-    digitalWrite(pIC, HIGH);
-    digitalWrite(pIRQ, HIGH);
-    digitalWrite(pCS, HIGH);
-    digitalWrite(pRD, HIGH);
-    digitalWrite(pWR, HIGH);
-    digitalWrite(pA0, HIGH);
-    digitalWrite(pA1, HIGH);
+    temp.SN76489feedback           = SN76478temp >> 16;
+    temp.SN76489shiftRegisterWidth = SN76478temp >> 8;
+    temp.SN76489flags              = SN76478temp;
+
+    return temp;
 }
 
-void setup() { 
-    setupPins();     
-    // TODO: Remove file-setup from arduino-setup
-    currentFile = PointerHelper(testFile.data, testFile.data + sizeof(testFile.data));
-    VGM::currentHeader = readVGMHeader((const uint32_t *)currentFile.position());
-    currentFile.skipBytes(0x34 + VGM::currentHeader.offsetStart);
-}
+YM2612::Command readVGMCommand(BlockReader& fileP,
+                               VGM::Header header = VGM::currentHeader) {
+    enum CommandType : uint8_t {
+        writeYM26120   = 0x52,
+        writeYM26121   = 0x53,
+        waitN          = 0x61,
+        wait60th       = 0x62,
+        wait50th       = 0x63,
+        endofSoundData = 0x66,
+        writeDataBlock = 0x67,
+        waitNplus1     = 0x70,
+        writeYM2612PCM = 0x80,
+        offsetPCM      = 0xE0
+    };
 
-void loop() {
+    uint32_t        tempUINT32;
+    uint8_t         tempUINT8;
+    uint8_t         read;
+    YM2612::Command tempCommand;
+    tempCommand.type = YM2612::Command::Type::inactive;
 
+    if (fileP.readByte(read)) {
+        // this all seems dodgy as hell. At least no data can be changed??
+        switch (read) {
+        case writeYM26120:
+        case writeYM26121:
+            if (fileP.readByte(tempCommand.write.address) &&
+                fileP.readByte(tempCommand.write.data)) {
+                tempCommand.write.bank = read - 0x52U;
+                tempCommand.type       = YM2612::Command::Type::write;
+            }
+            break;
+        case waitN:
+            tempCommand.wait = 0; // Not sure if necessary to 'initialise' the union.
+            if(fileP.readByte(tempUINT8)) { tempCommand.wait += tempUINT8; }
+            if(fileP.readByte(tempUINT8)) { tempCommand.wait += tempUINT8 << 8U; }
+            if(tempCommand.wait) { tempCommand.type = YM2612::Command::Type::wait; }
+            break;
+        case wait60th: 
+            tempCommand.wait = VGM::SIXTY_SAMPLES;
+            tempCommand.type = YM2612::Command::Type::wait;
+            break;
+        case wait50th:
+            tempCommand.wait = VGM::FIFTY_SAMPLES;
+            tempCommand.type = YM2612::Command::Type::wait;
+            break;
+        case waitNplus1 ... waitNplus1 + 0x0FU:
+            tempCommand.wait = read - waitNplus1 + 1;
+            tempCommand.type = YM2612::Command::Type::wait;
+            break;
+        case writeDataBlock: {
+            // No idea how to handle 4mB potential data.
+            // Should probably break up the block so that progress can be tested.
+            if(!fileP.skipBytes(1)) { break; }
+            uint8_t  typeOfDataBlock = fileP.readByte(typeOfDataBlock);
+            uint32_t blockLength;
+            if(fileP.readByte(tempUINT8)) { blockLength += tempUINT8; }
+            if(fileP.readByte(tempUINT8)) { blockLength += (uint32_t)tempUINT8 << 8U; }
+            if(fileP.readByte(tempUINT8)) { blockLength += (uint32_t)tempUINT8 << 16U; }
+            if(fileP.readByte(tempUINT8)) { blockLength += (uint32_t)tempUINT8 << 24U; }
+            // if(file.pointer8 + blockLength >=)
 
+            if (typeOfDataBlock == 0x00U) {
+                // PANIC!!!
+                //fileP.pointer8 += blockLength; // not somebody else's problem :(
+            } else {
+                // can't ignore it :(
+                //fileP.pointer8 += blockLength;
+            }
+            break;
+        }
+        case offsetPCM:
+            // Panic!!!
+            // First four uint8_ts define offset from PCM block (same as DAC
+            // Data??) Each subsequent 0x8n plays a sample and steps ahead n
+            // sample
+        case endofSoundData:
+            // some kind of flag?
+        default:
+            // VGMType::null;
+            break;
+        }
+    };
+
+    // if we've overflowed the file the command can't be trusted to be valid
+    if(!fileP) {
+        tempCommand.type = YM2612::Command::Type::inactive;
+    }
+
+    return tempCommand;
 }
 
 /* void something(uint8_t instruction, uint8_t d07) {
@@ -444,125 +600,112 @@ int pinMode(uint8_t pin) {
     volatile uint8_t *out = portOutputRegister(port);
     return ((*out & bit) ? INPUT_PULLUP : INPUT);
 }
- 
-VGM::Header readVGMHeader(const uint32_t *pointerToFileAddress) {
-    VGM::Header temp;
-    temp.fileID       = *pointerToFileAddress++;    // 0x00++
-    temp.offsetEOF    = *pointerToFileAddress++;    // 0x04++
-    temp.fileVersion  = *pointerToFileAddress++;    // 0x08++
-    temp.SN76489clock = *pointerToFileAddress++;    // 0x0C++
-    pointerToFileAddress += 2;                      // 0x10+8
-    temp.sampleTotal     = *pointerToFileAddress++; // 0x18++
-    temp.loopOffset      = *pointerToFileAddress++; // 0x1C++
-    temp.loopTotal       = *pointerToFileAddress++; // 0x20++
-    temp.frameRate       = *pointerToFileAddress++; // 0x24++
-    uint32_t SN76478temp = *pointerToFileAddress++; // 0x28++
-    temp.YM2612clock     = *pointerToFileAddress++; // 0x2C++
-    pointerToFileAddress++;                         // 0x30+4
 
-    if (temp.fileVersion < 0x00000150) {
-        temp.offsetStart = VGM::OFFSET_DEFAULT;
+static uint8_t overflowCount = 0;
+
+// https://www.gammon.com.au/timers
+void waitNSamples(uint16_t nSamples) {
+    static const uint16_t clockCyclesPerSample    = 363U; // Closer to 362.8
+    static const uint8_t  samplesPerClockOverflow = 180U; // Closer to 180.5
+
+    uint32_t temp = nSamples * clockCyclesPerSample;
+    temp -= (nSamples / 5); // 1 unleap cycle per five samples
+
+    TCCR1A = 0;
+    OCR1A  = (uint16_t)temp;
+
+    overflowCount = temp >> 16;
+
+    if (overflowCount) {
+        TIMSK1 = bit(TOIE1);
     } else {
-        temp.offsetStart = *pointerToFileAddress; // 0x34
+        TCCR1A = bit(WGM11);
+        TIMSK1 = bit(OCR1A);
     }
 
-    temp.SN76489feedback           = SN76478temp >> 16;
-    temp.SN76489shiftRegisterWidth = SN76478temp >> 8;
-    temp.SN76489flags              = SN76478temp;
+    TCCR1B = bit(CS10); // turn on counter, no prescale
+};
 
-    return temp;
+ISR(TIMER1_OVF_vect) {
+    if (!--overflowCount) { TIMSK1 = bit(OCR1A); }
 }
 
-YM2612::Command readVGMCommand(PointerHelper fileP,
-                               VGM::Header header = VGM::currentHeader) {
-    YM2612::Command tempCommand;
-    bool success = false;
-    uint8_t tempUINT8;
-    uint32_t        tempUINT32;
-    enum CommandType : uint8_t {
-        writeYM26120   = 0x52,
-        writeYM26121   = 0x53,
-        waitN          = 0x61,
-        wait60th       = 0x62,
-        wait50th       = 0x63,
-        endofSoundData = 0x66,
-        writeDataBlock = 0x67,
-        waitNplus1     = 0x70,
-        writeYM2612PCM = 0x80,
-        offsetPCM      = 0xE0
-    };
-    uint8_t test;
-    if (VGM::readByte(test, fileP)) {
-        // this all seems dodgy as hell. At least no data can be changed??
-        switch (test) {
-        case writeYM26120:
-        case writeYM26121:
-            tempCommand.type = YM2612::Command::Type::write;
+ISR(TIMER1_COMPA_vect) {
+    // wait is complete
+    // process next instruction
+}
 
-            if (VGM::readByte(tempUINT8, fileP) ||
-                VGM::readByte(tempCommand.write.address, fileP) ||
-                VGM::readByte(tempCommand.write.data, fileP)) {
-                success = true;
-                tempCommand.write.bank = tempUINT8 - 0x52;
-            }
-            break;
-        case waitN ... wait50th:
-            if (test == waitN) {
-                VGM::readByte(tempUINT8, fileP);
-                tempUINT32 = tempUINT8;
-                VGM::readByte(tempUINT8, fileP);
-                tempUINT32 += (uint32_t)tempUINT8 << 8;
-            } else if (test == wait60th) {
-                tempUINT32 = VGM::SIXTY_SAMPLES;
-            } else if (test == wait50th) {
-                tempUINT32 = VGM::FIFTY_SAMPLES;
-            }
-            tempCommand.type = YM2612::Command::Type::wait;
-            tempCommand.wait = tempUINT32;
-            break;
-        case waitNplus1 ... waitNplus1 + 0x0F:
-            tempCommand.type = YM2612::Command::Type::wait;
-            VGM::readByte(tempUINT8, fileP);
-            tempCommand.wait = tempUINT8 - waitNplus1;
-            break;
-        case writeDataBlock: {
-            // No idea how to handle 4mB potential data.
-            fileP.pointer8 += 2;
-            uint8_t  typeOfDataBlock = *fileP.pointer8++;
-            uint32_t blockLength;
-            blockLength += *fileP.pointer8++;
-            blockLength += (uint32_t)*fileP.pointer8++ << 8;
-            blockLength += (uint32_t)*fileP.pointer8++ << 16;
-            blockLength += (uint32_t)*fileP.pointer8++ << 24;
 
-            // if(file.pointer8 + blockLength >=)
 
-            if (typeOfDataBlock == 0x00) {
-                // PANIC!!!
-                fileP.pointer8 += blockLength; // not somebody else's problem :(
-            } else {
-                // can't ignore it :(
-                fileP.pointer8 += blockLength;
-            }
-            break;
-        }
-        case offsetPCM:
-            // Panic!!!
-            // First four uint8_ts define offset from PCM block (same as DAC
-            // Data??) Each subsequent 0x8n plays a sample and steps ahead n
-            // sample
-        case endofSoundData:
-            // some kind of flag?
-        default:
-            // VGMType::null;
-            break;
-        }
-    };
+void setupPins() {
+    pinMode(pIC, OUTPUT);
+    pinMode(pIRQ, OUTPUT);
+    pinMode(pCS, OUTPUT);
+    pinMode(pRD, OUTPUT);
+    pinMode(pWR, OUTPUT);
+    pinMode(pA0, OUTPUT);
+    pinMode(pA1, OUTPUT);
 
-    // if we've overflowed the file the command can't be trusted to be valid
-    if(fileP.pointer8 >= currentFile.pointerEOF || success == false) {
-        tempCommand.type = YM2612::Command::Type::inactive;
+    for (int i = 0; i < 8; i++) {
+        pinMode(DataBus + i, INPUT);
     }
 
-    return tempCommand;
+    digitalWrite(pIC, HIGH);
+    digitalWrite(pIRQ, HIGH);
+    digitalWrite(pCS, HIGH);
+    digitalWrite(pRD, HIGH);
+    digitalWrite(pWR, HIGH);
+    digitalWrite(pA0, HIGH);
+    digitalWrite(pA1, HIGH);
 }
+
+BlockReader loadBlock() {
+    BlockWriter temp;
+    // some Serial business
+    return BlockReader(temp);
+};
+
+static BlockReader blockA = loadBlock();
+static BlockReader blockB = loadBlock();
+static YM2612::Command pile[COMMANDPILESIZE];
+
+auto butts = sizeof(YM2612::Command::type);
+
+bool readBlockDatumIntoCommandPile() {
+    static bool activeBlockB = false;
+    
+    static BlockReader* activeBlock = activeBlockB ? &blockA : &blockB;
+    static BlockReader* inactiveBlock = activeBlockB ? &blockB : &blockA;
+
+    bool blocksRead = false;
+    YM2612::Command temp;
+
+    if (activeBlock) {
+        if (activeBlock->getPosition() > activeBlock->getPositionMid()) {
+            // load next block into inactiveBlock - callback?
+        }
+
+        temp = readVGMCommand(*activeBlock);
+    } else if (*inactiveBlock) { // check opposite block for validity
+        !activeBlockB;
+        temp = readVGMCommand(*inactiveBlock);
+    } else {
+        // no active blocks
+        // load next block into activeBlock - callback?
+    }
+
+    return (temp.type != YM2612::Command::Type::inactive);
+}
+
+void setup() { 
+    setupPins();     
+
+    Serial.begin(9600);
+
+    // TODO: Remove file-setup from arduino-setup
+    BlockReader currentFile = BlockReader(testFile.data[0], *(testFile.data + sizeof(testFile.data)));
+    VGM::currentHeader = readVGMHeader((const uint32_t *)currentFile.getPosition());
+    currentFile.skipBytes(0x34 + VGM::currentHeader.offsetStart);
+}
+
+void loop() {}
