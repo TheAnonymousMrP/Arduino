@@ -1,0 +1,244 @@
+#ifndef _TEST_SKETCH_
+namespace YM2612 {
+    struct Write {
+        uint8_t address;
+        uint8_t data;
+        // bool bank;   // Moved to Command; reduces padding
+    };
+
+    struct Register {
+        uint8_t address;
+        uint8_t sizeAndOffset; // Offset << 4
+    };
+
+    struct Command {
+        enum class Type : uint8_t { inactive, read, wait, write, writeDAC };
+        union {
+            Write    write;
+            uint16_t wait;
+        };
+        Type type = Type::inactive;
+        bool bank;
+    };
+
+    const uint32_t clockSpeed = 7670453U;
+
+    // TODO: Pick one and stick with it.
+    // Pros: Easier to abuse compares for ifs and switches
+    enum RegisterType : uint16_t { // Address | Size << 8 | Offset << 12
+        Test1       = 0x21 | (8 << 8) | (0 << 12),
+        LFO         = 0x22 | (4 << 8) | (0 << 12),
+        TimerA      = 0x24 | (1 << 8) | (0 << 12),
+        TimerB      = 0x26 | (8 << 8) | (0 << 12),
+        TimerLoad   = 0x27 | (2 << 8) | (0 << 12),
+        TimerEnable = 0x27 | (2 << 8) | (2 << 12),
+        TimerReset  = 0x27 | (2 << 8) | (4 << 12),
+        TimerMode   = 0x27 | (2 << 8) | (6 << 12),
+        Channel     = 0x28 | (3 << 8) | (0 << 12),
+        Slot        = 0x28 | (4 << 8) | (4 << 12),
+        DACData     = 0x2A | (8 << 8) | (0 << 12),
+        DACSelect   = 0x2B | (1 << 8) | (7 << 12),
+        Test2       = 0x2C | (8 << 8) | (0 << 12),
+        // These have a byte for each operator for each channel (see Page 16).
+        // TODO: Figure out how to factor in an offset
+        DT    = 0x30 | (3 << 8) | (4 << 12),
+        Multi = 0x30 | (4 << 8) | (0 << 12),
+        TL    = 0x40 | (7 << 8) | (0 << 12),
+        KS    = 0x50 | (2 << 8) | (6 << 12),
+        AR    = 0x50 | (5 << 8) | (0 << 12),
+        AM    = 0x60 | (1 << 8) | (7 << 12),
+        DR    = 0x60 | (5 << 8) | (0 << 12),
+        SR    = 0x70 | (5 << 8) | (0 << 12),
+        SL    = 0x80 | (4 << 8) | (4 << 12),
+        RR    = 0x80 | (4 << 8) | (0 << 12),
+        SSGEG = 0x90 | (4 << 8) | (0 << 12),
+        // These have a byte for each channel.
+        FNum1 = 0xA0 | (8 << 8) | (0 << 12),
+        FNum2 = 0xA4 | (3 << 8) | (0 << 12),
+        Block = 0xA4 | (3 << 8) | (3 << 12),
+        // These have a byte for each operator (channel 3).
+        // TODO: Figure out how to factor in an offset.
+        Channel3FNum1 = 0xA8 | (8 << 8) | (0 << 12),
+        Channel3FNum2 = 0xAC | (3 << 8) | (0 << 12),
+        Channel3Block = 0xAC | (3 << 8) | (3 << 12),
+        // These have a byte for each channel.
+        FB   = 0xB0 | (3 << 8) | (3 << 12),
+        Algo = 0xB0 | (3 << 8) | (0 << 12),
+        LR   = 0xB4 | (2 << 8) | (6 << 12),
+        AMS  = 0xB4 | (3 << 8) | (4 << 12),
+        PMS  = 0xB4 | (3 << 8) | (0 << 12)
+    };
+
+    // Pros: Easier to grab address
+    const Register Test1       = {0x21, 8 | (0 << 4)};
+    const Register LFO         = {0x22, 4 | (0 << 4)};
+    const Register TimerA      = {0x24, 10 | (0 << 4)};
+    const Register TimerB      = {0x26, 8 | (0 << 4)};
+    const Register TimerLoad   = {0x27, 2 | (0 << 4)};
+    const Register TimerEnable = {0x27, 2 | (2 << 4)};
+    const Register TimerReset  = {0x27, 2 | (4 << 4)};
+    const Register TimerMode   = {0x27, 2 | (6 << 4)};
+    const Register Channel     = {0x28, 3 | (0 << 4)};
+    const Register Slot        = {0x28, 4 | (4 << 4)};
+    const Register DACData     = {0x2A, 8 | (0 << 4)};
+    const Register DACSelect   = {0x2B, 1 | (7 << 4)};
+    const Register Test2       = {0x2C, 8 | (0 << 4)};
+
+    const Register DT    = {0x30, 3 | (4 << 4)};
+    const Register Multi = {0x30, 4 | (0 << 4)};
+    const Register TL    = {0x40, 7 | (0 << 4)};
+    const Register KS    = {0x50, 2 | (6 << 4)};
+    const Register AR    = {0x50, 5 | (0 << 4)};
+    const Register AM    = {0x60, 1 | (7 << 4)};
+    const Register DR    = {0x60, 5 | (0 << 4)};
+    const Register SR    = {0x70, 5 | (0 << 4)};
+    const Register SL    = {0x80, 4 | (4 << 4)};
+    const Register RR    = {0x80, 4 | (0 << 4)};
+    const Register SSGEG = {0x90, 4 | (0 << 4)};
+    const Register FNum1 = {0xA0, 8 | (0 << 4)};
+    const Register FNum2 = {0xA4, 3 | (0 << 4)};
+    const Register Block = {0xA4, 3 | (3 << 4)};
+
+    const Register Channel3FNum1 = {0xA8, 8 | (0 << 4)};
+    const Register Channel3FNum2 = {0xAC, 3 | (0 << 4)};
+    const Register Channel3Block = {0xAC, 3 | (3 << 4)};
+    const Register FB            = {0xB0, 3 | (3 << 4)};
+    const Register Algo          = {0xB0, 3 | (0 << 4)};
+    const Register LR            = {0xB4, 2 | (6 << 4)};
+    const Register AMS           = {0xB4, 3 | (4 << 4)};
+    const Register PMS           = {0xB4, 3 | (0 << 4)};
+
+    // Maintains a copy of the YM2612's memory and handles data transfer
+    class State {
+        static const uint8_t sharedStart  = 0x21; // Test1
+        static const uint8_t channelStart = 0x30; // DT
+        static const uint8_t channelEnd   = 0xB4; // LR-AMS-PMS
+        uint8_t              sharedRegister[channelStart - sharedStart];
+        uint8_t              channelRegister0ter0[channelEnd - channelStart];
+        uint8_t              channelData1[channelEnd - channelStart];
+        // TODO: Remove unused addresses from internal state
+
+        uint8_t getMask(RegisterType register1) {
+            const uint8_t address = (uint8_t)register1;
+            const uint8_t size    = (uint8_t)(register1 >> 8) & B00001111;
+            const uint8_t offset  = (uint8_t)(register1 >> 12);
+
+            return (0xFF >> (8 - size)) << offset;
+        }
+
+      public:
+        State() : sharedRegister(){}; // prep some default state
+
+        bool updateRegister(RegisterType register1, uint16_t newData = 0U,
+                                 bool bank0Or1 = false) {
+            const uint8_t address = (uint8_t)register1;
+            const uint8_t size    = (uint8_t)(register1 >> 8) & B00001111;
+            const uint8_t offset  = (uint8_t)(register1 >> 12);
+            // check for valid address
+            if (address >= sharedStart && address <= channelEnd) {
+                switch (address) {
+                case 0x24: // TimerA
+                    break;
+                case 0x21 ... 0x23:
+                case 0x25 ... 0x2F:
+                    if (size == 8U) {
+                        sharedRegister[address - sharedStart] = (uint8_t)newData;
+                    } else {
+                        uint8_t mask = getMask(register1);
+                    }
+                    break;
+                default: return false; break;
+                }
+                if (address == TimerA.address) {
+                    // special case
+                } else if (size == 8U) { // no need for mask
+                    sharedRegister[address - low] = (uint8_t)newData;
+
+                } else {
+                    sharedRegister[address - low] &= !mask;
+                    sharedRegister[address - low] |= (uint8_t)newData;
+                }
+            } else {
+                return false;
+            }
+        }
+
+        bool writeData(uint8_t address, uint16_t newData,
+                       uint8_t mask = B11111111) {
+            // check for valid address
+            if (address >= low && address <= high) {
+                if (address == TimerA.address) {
+                    // special case
+                } else if (mask == B11111111) {
+                    sharedRegister[address - low] = newData;
+                } else {
+                    sharedRegister[address - low] &= !mask;
+                    sharedRegister[address - low] |= (uint8_t)newData;
+                }
+            } else {
+                return false;
+            }
+        }
+    } currentState;
+
+    void inactiveDataBus() {
+        // removed
+    }
+
+    void writeDataToAddress(Command & nextCommand, Command & lastCommand) {
+        bool processAddress = true;
+        bool isCurBank1 =
+            (lastCommand.type == Command::Type::write && lastCommand.bank)
+                ? true
+                : false;
+        bool isNewBank1 =
+            (nextCommand.type == Command::Type::write && lastCommand.bank)
+                ? true
+                : false;
+
+        // check address against last instruction if appropriate
+        if (lastCommand.type == Command::Type::write) {
+            processAddress != isCurBank1 ==
+                isNewBank1 && nextCommand.write.address ==
+                lastCommand.write.address;
+        }
+
+        if (processAddress) {
+            writeYM2612Bus(nextCommand, false);
+            writeWaitWidth(false, true, nextCommand.write.address);
+        }
+
+        writeYM2612Bus(nextCommand, true);
+    }
+
+    void writeYM2612Bus(Command & command, bool toAddressOrData) {
+        // removed
+    }
+
+    void writeWaitWidth(bool fromAddressOrData, bool toAddressOrData,
+                        uint8_t address) {
+        if (fromAddressOrData) {
+            if (address < 0x21 || address > 0xB6) {
+                // undefined behaviour, panic!!!
+            } else if (address < 0xA0) {
+                // 83 cycles
+            } else {
+                // 47 cycles
+            }
+        } else if (!fromAddressOrData && !toAddressOrData) {
+            // undefined behaviour, panic!!!
+        } else {
+            // 17 cycles
+        }
+    }
+}; // namespace YM2612
+
+#endif
+
+namespace YM2612 {
+    
+} // namespace YM2612
+
+void main() {
+
+}

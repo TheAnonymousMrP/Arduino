@@ -3,13 +3,16 @@
         {
             "name": "Win32",
             "includePath": [
-                "E:\\Users\\Stephen\\Documents\\Arduino\\libraries\\PrintEx\\src",
-                "E:\\Program Files (x86)\\Arduino\\libraries\\SD\\src",
-                "E:\\Program Files (x86)\\Arduino\\tools\\**",
-                "E:\\Users\\Stephen\\Documents\\Arduino\\libraries\\**",
-                "E:\\Program Files (x86)\\Arduino\\libraries\\**",
+                "${workspaceRoot}",
+                "E:\\Program Files (x86)\\Arduino\\hardware\\arduino\\avr\\**",
                 "E:\\Program Files (x86)\\Arduino\\hardware\\tools\\**",
-                "E:\\Program Files (x86)\\Arduino\\hardware\\arduino\\avr\\**"
+                "E:\\Program Files (x86)\\Arduino\\libraries\\**",
+                "E:\\Users\\Stephen\\Documents\\Arduino\\libraries\\**",
+                "E:\\Program Files (x86)\\Arduino\\tools\\**",
+                "E:\\Program Files (x86)\\Arduino\\hardware\\tools\\**",
+                "E:\\Program Files (x86)\\Arduino\\libraries\\**",
+                // "E:\\Users\\Stephen\\Documents\\Arduino\\hardware\\tools\\**",
+                "E:\\Users\\Stephen\\Documents\\Arduino\\libraries\\**"
             ],
             "forcedInclude": [
                 "E:\\Program Files (x86)\\Arduino\\hardware\\arduino\\avr\\cores\\arduino\\Arduino.h"
