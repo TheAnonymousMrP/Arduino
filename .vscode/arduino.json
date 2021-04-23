@@ -1,5 +1,5 @@
 {
-    "sketch": "test_sketch.ino",
+    "sketch": "synth.ino",
     "board": "arduino:avr:mega",
     "configuration": "cpu=atmega2560",
     "port": "COM1",
